@@ -621,7 +621,7 @@ TRANS = {
         'wealth_subtitle': "การสร้างพอร์ตโฟลิโอระดับสถาบันด้วยทฤษฎี Modern Portfolio Theory (MPT)",
         'glossary_title': "Bidnow Glossary",
         'glossary_subtitle': "คำนิยามทางเทคนิคและกรอบระเบียบวิธีวิเคราะห์เชิงปริมาณ",
-        'howto_title': "Bidnow Methodology",
+        'howto_title': "Bidnow(BetaTest)",
         'howto_subtitle': "กรอบแนวทางทางเทคนิคและระเบียบขั้นตอนการวิเคราะห์ระดับสถาบัน",
         'footer_caption': "Professional Crypto Analytics Platform",
         'health_check_title': "🔍 On-Chain Health Check",
