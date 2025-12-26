@@ -1,0 +1,4 @@
+﻿--- AAPL Unit Check ---
+Shares Outstanding: 14,776,353,000
+Price: 270.97
+Calc Market Cap: 4,003,948,390,448
