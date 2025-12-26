@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 from scipy.optimize import minimize
 
-class BitnowOptimizer:
+class BidnowOptimizer:
     def __init__(self, risk_profile, capital_amount):
         """
         Initializes the Optimizer.
@@ -30,7 +30,7 @@ class BitnowOptimizer:
         """
         Selects assets using a 'Pyramid' Tiered Strategy.
         Tier 1 (Foundation): Top Trusted (Blue Chips)
-        Tier 2 (Growth): High Bitnow Score (Quality)
+        Tier 2 (Growth): High Bidnow Score (Quality)
         Tier 3 (Alpha): High Momentum/Volatility (Potential)
         """
         if ranking_df.empty: return pd.DataFrame()
@@ -38,7 +38,7 @@ class BitnowOptimizer:
         df = ranking_df.copy()
         
         # Helper: Ensure we have data
-        req_cols = ['Symbol', 'Bitnow_Score', 'Vol_30D', 'RSI']
+        req_cols = ['Symbol', 'Bidnow_Score', 'Vol_30D', 'RSI']
         for c in req_cols:
             if c not in df.columns: return pd.DataFrame()
             
@@ -48,7 +48,7 @@ class BitnowOptimizer:
         # 1. Foundation (Blue Chips) - Safety
         # We assume known list or top matches
         blue_chips = ['BTC-USD', 'ETH-USD', 'SOL-USD', 'BNB-USD', 'XRP-USD', 'ADA-USD', 'AVAX-USD']
-        foundation_candidates = df[df['Symbol'].isin(blue_chips)].sort_values(by='Bitnow_Score', ascending=False)
+        foundation_candidates = df[df['Symbol'].isin(blue_chips)].sort_values(by='Bidnow_Score', ascending=False)
         
         # Select Top 3-5 Foundation
         n_foundation = max(2, int(target_n * 0.3)) # 30% count
@@ -58,7 +58,7 @@ class BitnowOptimizer:
         # Exclude already selected
         remaining = df[~df['Symbol'].isin(selected_foundation['Symbol'])]
         # Sort by Score
-        growth_candidates = remaining.sort_values(by='Bitnow_Score', ascending=False)
+        growth_candidates = remaining.sort_values(by='Bidnow_Score', ascending=False)
         
         n_growth = max(3, int(target_n * 0.5)) # 50% count
         selected_growth = growth_candidates.head(n_growth)
@@ -89,7 +89,7 @@ class BitnowOptimizer:
         - Growth (Core): ~30%
         - Alpha (Moon): ~20%
         
-        Within tiers, weights are distributed based on 'Bitnow_Score' (Fundamental Quality).
+        Within tiers, weights are distributed based on 'Bidnow_Score' (Fundamental Quality).
         """
         if price_history_df.empty: return {}
         tickers = price_history_df.columns.tolist()
@@ -129,7 +129,7 @@ class BitnowOptimizer:
                 
             # Weighting within Tier: Score Weighted
             # Higher Score = Higher Weight
-            total_score = tier_assets['Bitnow_Score'].sum()
+            total_score = tier_assets['Bidnow_Score'].sum()
             
             if total_score == 0:
                 # Equal weight if no scores
@@ -139,7 +139,7 @@ class BitnowOptimizer:
             else:
                 # Proportional to Score
                 for _, row in tier_assets.iterrows():
-                    share = row['Bitnow_Score'] / total_score
+                    share = row['Bidnow_Score'] / total_score
                     weights[row['Symbol']] = target_pct * share
                     
         # 3. Normalize (in case some tiers were empty)
