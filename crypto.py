@@ -2277,7 +2277,7 @@ def page_auto_wealth():
         import yfinance as yf
         
         # Inject Stablecoin & Gold (SoV) for safety if not present
-        defaults = ['USDC-USD', 'PAXG-USD']
+        defaults = ['USDC-USD']
         for d in defaults:
             if d not in selected_tickers:
                 selected_tickers.append(d)

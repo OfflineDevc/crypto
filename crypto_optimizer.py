@@ -106,7 +106,7 @@ class BidnowOptimizer:
         
         # --- STABLECOIN & SOV SETUP ---
         stablecoins = ['USDC-USD', 'USDT-USD', 'DAI-USD', 'USDE-USD', 'FDUSD-USD']
-        sov_assets = ['BTC-USD', 'PAXG-USD']
+        sov_assets = ['BTC-USD'] # Pure Association: BTC is the only SoV
         
         # Override Params for Stablecoins (The Risk-Free Yield Trick)
         for i, t in enumerate(tickers):
@@ -117,27 +117,23 @@ class BidnowOptimizer:
                 cov_matrix.loc[t, t] = 0.0001
         
         # 2. Define Constraints based on Risk Profile
-        sov_target = 0.50 # SoV Base
+        sov_target = 0.50 # SoV Base (BTC Only)
         min_cash = 0.10   # Liquidity Buffer
-        btc_floor = 0.20  # Minimum BTC Allocation
         
         if self.risk_profile == 'Aggressive':
             max_w = 0.60
             sov_target = 0.40
             min_cash = 0.05
-            btc_floor = 0.30 
             risk_free_rate = 0.03 
         elif self.risk_profile == 'Conservative':
             max_w = 0.30 
             sov_target = 0.60
             min_cash = 0.15
-            btc_floor = 0.20 
             risk_free_rate = 0.04
         else: # Moderate
             max_w = 0.40
             sov_target = 0.50
             min_cash = 0.10
-            btc_floor = 0.25
             risk_free_rate = 0.035
 
         # Bounds
@@ -148,24 +144,19 @@ class BidnowOptimizer:
             elif t in sov_assets:
                 bounds.append((0.05, 0.8)) # SoV can go high
             else:
-                # Force Diversification: Alts must have at least 1.5%
+                 # Force Diversification: Alts must have at least 1.5%
                 bounds.append((0.015, max_w)) 
         bounds = tuple(bounds)
         
         # Constraints
         cons_list = [{'type': 'eq', 'fun': lambda x: np.sum(x) - 1}]
         
-        # C2: SoV Constraint (BTC + PAXG >= target)
+        # C2: SoV Constraint (BTC >= target)
         sov_indices = [i for i, t in enumerate(tickers) if t in sov_assets]
         if sov_indices:
              cons_list.append({'type': 'ineq', 'fun': lambda x: np.sum(x[sov_indices]) - sov_target})
-
-        # C3: BTC Floor Constraint (Don't let Gold eat all the quota)
-        if 'BTC-USD' in tickers:
-             btc_idx = tickers.index('BTC-USD')
-             cons_list.append({'type': 'ineq', 'fun': lambda x: x[btc_idx] - btc_floor})
              
-        # C4: Maximum Drawdown Protection / Liquidity Constraint
+        # C3: Maximum Drawdown Protection / Liquidity Constraint
         # Must hold at least min_cash in Stablecoins
         cash_indices = [i for i, t in enumerate(tickers) if t in stablecoins]
         if cash_indices:
