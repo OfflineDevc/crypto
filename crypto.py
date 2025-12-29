@@ -936,11 +936,86 @@ def calculate_adx(high, low, close, period=14):
     adx = dx.rolling(period).mean()
     return adx
 
-def calculate_mvrv_z_proxy(series, window=200):
-    ma = series.rolling(window=window).mean()
-    std = series.rolling(window=window).std()
-    z_score = (series - ma) / std
-    return z_score
+def calculate_mvrv_z_proxy(series_price, series_vol, window=365):
+    """
+    Advanced Proxy: Uses VWAP (Volume Weighted Average Price) as 'Realized Price'.
+    MVRV = Market Price / Realized Price (VWAP).
+    Z-Score = (Market Cap - Realized Cap) / StdDev(Market Cap).
+    Here we use Price level proxy.
+    """
+    # Rolling VWAP
+    # VWAP = Sum(Price * Vol) / Sum(Vol)
+    pv = series_price * series_vol
+    
+    # We use a rolling window to simulate "Active Cost Basis" (e.g. 1 Year)
+    # Real Realized Cap is lifetime, but strictly that just trends up. 
+    # A Rolling VWAP captures the "Recent Cost Basis" better for trading cycles.
+    rolling_pv = pv.rolling(window=window).sum()
+    rolling_vol = series_vol.rolling(window=window).sum()
+    
+    vwap = rolling_pv / rolling_vol
+    
+    # MVRV Ratio
+    mvrv_ratio = series_price / vwap
+    
+    # Z-Score Calculation (Standardize the Ratio)
+    # We want to know how far the CURRENT ratio is from the HISTORICAL average ratio
+    mean_ratio = mvrv_ratio.rolling(window=window).mean()
+    std_ratio = mvrv_ratio.rolling(window=window).std()
+    
+    z_score = (mvrv_ratio - mean_ratio) / std_ratio
+    
+    return z_score, mvrv_ratio
+
+def detect_whale_activity(hist):
+    """
+    Analyzes Volume Spikes and Price Action to detect 'Smart Money'.
+    Returns: Score (0-100), Description
+    """
+    if len(hist) < 30: return 0, "Insuff. Data"
+    
+    # 1. Volume Anomaly
+    vol = hist['Volume']
+    vol_ma_30 = vol.rolling(30).mean()
+    vol_std_30 = vol.rolling(30).std()
+    
+    current_vol = vol.iloc[-1]
+    last_ma = vol_ma_30.iloc[-1]
+    last_std = vol_std_30.iloc[-1]
+    
+    if last_std == 0: return 0, "Stable"
+    
+    z_vol = (current_vol - last_ma) / last_std
+    
+    # 2. Price Action (Absorption Check)
+    # If Vol is Huge but Price is Flat or Up = Accumulation
+    # If Vol is Huge and Price is Down = Dumping
+    close = hist['Close']
+    open_ = hist['Open']
+    price_change = (close.iloc[-1] - open_.iloc[-1]) / open_.iloc[-1]
+    
+    score = 50
+    status = "Normal"
+    
+    if z_vol > 3.0: # Huge Spike (> 3 Sigma)
+        if abs(price_change) < 0.01: # High Vol, Flat Price (Absorption/Handover)
+            score = 95
+            status = "🐋 WHALE ALERT: Absorption (High Vol, Flat Price)"
+        elif price_change > 0:
+            score = 85
+            status = "🚀 WHALE ALERT: Aggressive Buying"
+        else:
+            score = 20 # Panic Dump
+            status = "⚠️ WHALE ALERT: Panic Selling / Dumping"
+    elif z_vol > 2.0:
+        if price_change >= 0:
+            score = 75
+            status = "👀 Institutional Interest (Rising Vol)"
+        else:
+            score = 40
+            status = "📉 High Selling Pressure"
+            
+    return score, status
 
 # --- Stage 1: Fast Scan (Batch) ---
 def scan_market_basic(tickers, progress_bar, status_text, debug_container=None):
@@ -983,72 +1058,50 @@ def scan_market_basic(tickers, progress_bar, status_text, debug_container=None):
             
             # Drop NaN
             hist = hist.dropna(subset=['Close'])
-            if len(hist) < 30: continue # Need at least 30d history
-
+            if len(hist) < 60: continue # Need history for VWAP
             
             # --- CALCULATE METRICS ---
             closes = hist['Close']
+            vols = hist['Volume']
             
-            # 1. Valuation: MVRV Z-Score Proxy
-            z_score_series = calculate_mvrv_z_proxy(closes)
+            # 1. Valuation: MVRV Z-Score Proxy (ADVANCED VWAP)
+            z_score_series, _ = calculate_mvrv_z_proxy(closes, vols)
             current_z = z_score_series.iloc[-1] if not pd.isna(z_score_series.iloc[-1]) else 0
             
             # 2. Momentum: RSI
             rsi_series = calculate_rsi(closes)
             current_rsi = rsi_series.iloc[-1] if not pd.isna(rsi_series.iloc[-1]) else 50
             
-            # 3. Volatility (30D)
+            # 3. Whale Radar
+            whale_score, whale_status = detect_whale_activity(hist)
+            
+            # 4. Volatility (30D)
             returns = closes.pct_change()
             vol_30d = returns.rolling(30).std().iloc[-1] * (365 ** 0.5) * 100
             if pd.isna(vol_30d): vol_30d = 0
             
-            # 4. Cycle State
+            # 5. Cycle State
             cycle_state = "😐 Neutral"
-            if current_z < 0: cycle_state = "🟢 Accumulation (Undervalued)"
-            elif current_z > 3: cycle_state = "🔴 Euphoria (Overvalued)"
+            if current_z < -0.5: cycle_state = "🟢 Accumulation (Undervalued)" # VWAP is tighter, so lower Z threshold
+            elif current_z > 3.0: cycle_state = "🔴 Euphoria (Overvalued)"
             elif current_z > 1.5: cycle_state = "🟠 Greed"
             
             narrative = classify_narrative(ticker)
             
-            # 5. Price Change
+            # 6. Price Change
             price = closes.iloc[-1]
             chg_7d = (price - closes.iloc[-8]) / closes.iloc[-8] * 100 if len(closes) > 7 else 0
             chg_30d = (price - closes.iloc[-31]) / closes.iloc[-31] * 100 if len(closes) > 31 else 0
             
-            
-            # 3. Risk Score (20%)
-            risk_s = 50
-            if vol_30d < 60: risk_s = 100
-            elif vol_30d > 120: risk_s = 0
-            else: risk_s = 100 - ((vol_30d - 60) / 60 * 100)
-            risk_s = max(0, min(100, int(risk_s)))
-            
-            # 4. Sent Score (20%) - Volume Proxy
-            sent_s = 50
-            try:
-                vol_curr = hist['Volume'].iloc[-1]
-                vol_avg = hist['Volume'].tail(30).mean()
-                if vol_avg > 0:
-                    vol_r = vol_curr / vol_avg
-                    if vol_r > 1.5: sent_s = 80
-                    elif vol_r < 0.5: sent_s = 30
-                
-                # Bull Market Sentiment (SMA200 reused)
-                if price > sma200_val: sent_s = 80
-            except: pass
-            
             # --- PRO SCORE CALCULATION (Centralized Expert Engine) ---
             try:
-                # scores = calculate_Bidnow_score(ticker, hist, info=None)
-                # Fallback to empty score if calculation fails
                 scores = calculate_Bidnow_score(ticker, hist, info=None)
                 total_pro_score = scores.get('total', 0)
                 analysis_str = get_grade(total_pro_score)
             except Exception as e:
-                # print(f"Score Error {ticker}: {e}")
                 total_pro_score = 0
                 analysis_str = "Error"
-                scores = {} # Empty dict
+                scores = {} 
                 
             # --- Bidnow LINE & MARGIN OF SAFETY ---
             try:
@@ -1063,7 +1116,6 @@ def scan_market_basic(tickers, progress_bar, status_text, debug_container=None):
                 fair_value = price
                 mos = 0
             
-            
             data_list.append({
                 'Symbol': ticker,
                 'Narrative': narrative,
@@ -1076,10 +1128,16 @@ def scan_market_basic(tickers, progress_bar, status_text, debug_container=None):
                 'RSI': current_rsi,
                 'Vol_30D': vol_30d,
                 'Cycle_State': cycle_state,
+                'Whale_Score': whale_score,
+                'Whale_Status': whale_status,
                 '7D': chg_7d,
                 '30D': chg_30d,
                 'YF_Obj': None 
             })
+            
+        except Exception as e:
+            if debug_container: debug_container.write(f"Error {ticker}: {e}")
+            continue
             
         except Exception as e:
             if debug_container: debug_container.write(f"Error {ticker}: {e}")
@@ -1818,9 +1876,16 @@ def page_single_coin():
                 
                 # Metrics
                 narrative = classify_narrative(ticker)
-                mvrv_z = calculate_mvrv_z_proxy(hist['Close']).iloc[-1] if len(hist) > 200 else 0
+                
+                # NEW: VWAP based MVRV
+                mvrv_z, _ = calculate_mvrv_z_proxy(hist['Close'], hist['Volume'])
+                mvrv_z_val = mvrv_z.iloc[-1] if not pd.isna(mvrv_z.iloc[-1]) else 0
+                
                 rsi = calculate_rsi(hist['Close']).iloc[-1] if len(hist) > 14 else 50
                 risk_score = calculate_cycle_risk(current_price, ath)
+                
+                # NEW: Whale Radar
+                whale_score, whale_status = detect_whale_activity(hist)
                 
                 # --- PRO INTELLIGENCE (Signal Source) ---
                 # Use cached info for reliability and performance
@@ -1857,8 +1922,13 @@ def page_single_coin():
 
                 c1, c2, c3, c4 = st.columns(4)
                 c1.metric("Price", f"${current_price:,.2f}", f"{(current_price/hist['Close'].iloc[-2]-1)*100:.2f}%")
-                c2.metric("ATH (Cycle High)", f"${ath:,.2f}", f"{drawdown*100:.1f}% From Top")
-                c3.metric("MVRV Z-Score", f"{mvrv_z:.2f}", "Overvalued" if mvrv_z > 3 else "Undervalued")
+                c2.metric("MVRV (VWAP Basis)", f"{mvrv_z_val:.2f}", "Overvalued" if mvrv_z_val > 3 else "Undervalued")
+                
+                # Whale Metric Feature
+                delta_color = "normal"
+                if whale_score >= 75: delta_color = "inverse" # High Alert (Green/Red inverse doesn't apply directly but distinct)
+                c3.metric("Whale Radar 🐋", f"{whale_score}/100", whale_status, delta_color=delta_color)
+                
                 c4.metric("Cycle Risk Gauge", f"{risk_score*100:.0f}/100", "Extreme Risk" if risk_score > 0.8 else "Safe Zone")
 
                 # --- PRO SCORECARD (Expert Intelligence) ---
@@ -2222,6 +2292,28 @@ def page_auto_wealth():
         st.divider()
         st.subheader(f"✅ Your Optimized Portfolio ({risk_profile})")
         
+        # Calculate Portfolio Metrics for Display
+        try:
+            # Re-calc stats based on final weights
+            w_vector = np.array([optimal_weights.get(t, 0) for t in data.columns])
+            returns = data.pct_change().dropna()
+            mean_ret = returns.mean() * 365
+            cov = returns.cov() * 365
+            
+            port_ret = np.sum(mean_ret * w_vector)
+            port_std = np.sqrt(np.dot(w_vector.T, np.dot(cov, w_vector)))
+            sharpe = (port_ret - 0.04) / port_std
+            
+            m1, m2, m3 = st.columns(3)
+            m1.metric("Expected Annual Return", f"{port_ret*100:.1f}%", help="Based on historical mean returns.")
+            m2.metric("Portfolio Volatility (Risk)", f"{port_std*100:.1f}%", help="Annualized Standard Deviation.")
+            m3.metric("Sharpe Ratio (Efficiency)", f"{sharpe:.2f}", help="> 1.0 is Good. > 2.0 is Excellent.", delta_color="normal")
+            
+            st.caption(f"**Optimization Logic**: Maximize Sharpe Ratio (Mean-Variance) with {risk_profile} Constraints.")
+            
+        except Exception as e:
+            st.error(f"Could not calculate metrics: {e}")
+
         # Pie Chart
         import plotly.express as px
         df_alloc = pd.DataFrame(list(optimal_weights.items()), columns=['Asset', 'Weight'])
@@ -2233,13 +2325,19 @@ def page_auto_wealth():
         c_pie, c_tab = st.columns([1, 1])
         
         with c_pie:
-            fig = px.pie(df_alloc, values='Weight', names='Asset', hole=0.4)
+            # Gold Palette
+            fig = px.pie(df_alloc, values='Weight', names='Asset', hole=0.4, 
+                         color_discrete_sequence=px.colors.sequential.RdBu) 
             st.plotly_chart(fig)
             
         with c_tab:
-            st.dataframe(df_alloc.style.format({'Weight': '{:.2%}', 'Value ($)': '${:,.2f}'}))
+            st.dataframe(
+                df_alloc.style.format({'Weight': '{:.2%}', 'Value ($)': '${:,.2f}'})
+                                .background_gradient(cmap='Greens', subset=['Weight']),
+                use_container_width=True
+            )
             
-        st.success("Optimization Complete. This portfolio maximizes Sharpe Ratio based on your constraints.")
+        st.success("Optimization Complete. This portfolio represents the Mathematical Maximum Efficiency (Efficient Frontier).")
 
 
 def page_howto():
