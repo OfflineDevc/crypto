@@ -280,11 +280,14 @@ class BidnowOptimizer:
                     # Simplified: just return top N score if math failed to diversify
                     return ranking_df.head(10)
                     
-                selected_df = candidates[candidates['Symbol'].isin(winners)]
+                selected_df = candidates[candidates['Symbol'].isin(winners)].copy()
+                selected_df['Tier'] = 'Quant'
                 return selected_df
                 
         except Exception as e:
             # print(f"Quant Selection Failed: {e}")
             pass
             
-        return ranking_df.head(10) # Fallback
+        fallback = ranking_df.head(10).copy()
+        fallback['Tier'] = 'Fallback'
+        return fallback
