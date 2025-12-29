@@ -2258,7 +2258,22 @@ def page_auto_wealth():
         df_scan = calculate_Bidnow_ranking(df_scan) 
         
         # C. Select Universe
-        df_selected = opt.select_universe(df_scan, override_n=target_n) 
+        # Quant Mode Toggle
+        quant_mode = st.checkbox("🧪 Enable AI Quant Selection (Global Optimization)", 
+                                help="Analyze Top 30 assets and mathematically select the best combination for Sharpe Ratio before optimizing.")
+
+        if quant_mode:
+            status.write("🧠 AI is simulating thousands of combinations (Global Optimization)...")
+            try:
+                # Use the new Math Engine
+                df_selected = opt.select_optimal_universe(df_scan, top_n_candidates=30)
+                if len(df_selected) > 0:
+                   st.success(f"AI Selected {len(df_selected)} Best Assets (Mathematical Winners)!")
+            except AttributeError:
+                st.error("Quant Engine not ready. Using standard selection.")
+                df_selected = opt.select_universe(df_scan, override_n=target_n) 
+        else:
+            df_selected = opt.select_universe(df_scan, override_n=target_n) 
         
         if df_selected.empty:
             st.warning("No assets selected. Try retrying.")
