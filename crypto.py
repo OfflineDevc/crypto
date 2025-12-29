@@ -2232,6 +2232,10 @@ def page_auto_wealth():
     rec_n = opt.determine_asset_count()
     target_n = st.slider("Target Asset Count", min_value=5, max_value=20, value=rec_n, help="Number of coins in portfolio")
 
+    # Quant Mode Toggle (Outside Button)
+    quant_mode = st.checkbox("🧪 Enable AI Quant Selection (Global Optimization)", 
+                            help="Analyze Top 30 assets and mathematically select the best combination for Sharpe Ratio before optimizing.")
+    
     # 2. Execution
     if st.button("Generate Optimal Portfolio", type="primary"):
         # A. Determine Constraints
@@ -2258,10 +2262,7 @@ def page_auto_wealth():
         df_scan = calculate_Bidnow_ranking(df_scan) 
         
         # C. Select Universe
-        # Quant Mode Toggle
-        quant_mode = st.checkbox("🧪 Enable AI Quant Selection (Global Optimization)", 
-                                help="Analyze Top 30 assets and mathematically select the best combination for Sharpe Ratio before optimizing.")
-
+        
         if quant_mode:
             status.write("🧠 AI is simulating thousands of combinations (Global Optimization)...")
             try:
