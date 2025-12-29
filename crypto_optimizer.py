@@ -130,6 +130,18 @@ class BidnowOptimizer:
             sov_target = 0.60
             min_cash = 0.15
             risk_free_rate = 0.04
+        elif self.risk_profile == 'Sniper':
+            # High Conviction: Concentrated Bets
+            max_w = 0.80      # Can go almost all-in on one winner
+            sov_target = 0.30 # Lower safety base
+            min_cash = 0.05   # Bare minimum liquid
+            risk_free_rate = 0.04
+        elif self.risk_profile == 'Moonshot':
+            # Degen Mode: Scatter shots for Multi-baggers
+            max_w = 0.40      # Don't bet everything on one junk coin
+            sov_target = 0.15 # Minimal BTC anchor
+            min_cash = 0.02   # Almost fully invested
+            risk_free_rate = 0.0
         else: # Moderate
             max_w = 0.40
             sov_target = 0.50
