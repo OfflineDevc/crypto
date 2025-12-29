@@ -119,21 +119,25 @@ class BidnowOptimizer:
         # 2. Define Constraints based on Risk Profile
         sov_target = 0.50 # SoV Base
         min_cash = 0.10   # Liquidity Buffer
+        btc_floor = 0.20  # Minimum BTC Allocation
         
         if self.risk_profile == 'Aggressive':
             max_w = 0.60
             sov_target = 0.40
             min_cash = 0.05
+            btc_floor = 0.30 
             risk_free_rate = 0.03 
         elif self.risk_profile == 'Conservative':
             max_w = 0.30 
             sov_target = 0.60
             min_cash = 0.15
+            btc_floor = 0.20 
             risk_free_rate = 0.04
         else: # Moderate
             max_w = 0.40
             sov_target = 0.50
             min_cash = 0.10
+            btc_floor = 0.25
             risk_free_rate = 0.035
 
         # Bounds
@@ -154,8 +158,13 @@ class BidnowOptimizer:
         sov_indices = [i for i, t in enumerate(tickers) if t in sov_assets]
         if sov_indices:
              cons_list.append({'type': 'ineq', 'fun': lambda x: np.sum(x[sov_indices]) - sov_target})
+
+        # C3: BTC Floor Constraint (Don't let Gold eat all the quota)
+        if 'BTC-USD' in tickers:
+             btc_idx = tickers.index('BTC-USD')
+             cons_list.append({'type': 'ineq', 'fun': lambda x: x[btc_idx] - btc_floor})
              
-        # C3: Maximum Drawdown Protection / Liquidity Constraint
+        # C4: Maximum Drawdown Protection / Liquidity Constraint
         # Must hold at least min_cash in Stablecoins
         cash_indices = [i for i, t in enumerate(tickers) if t in stablecoins]
         if cash_indices:
