@@ -2332,8 +2332,19 @@ def page_auto_wealth():
             
         with c_tab:
             st.dataframe(
-                df_alloc.style.format({'Weight': '{:.2%}', 'Value ($)': '${:,.2f}'})
-                                .background_gradient(cmap='Greens', subset=['Weight']),
+                df_alloc,
+                column_config={
+                    "Weight": st.column_config.ProgressColumn(
+                        "Allocation %",
+                        format="%.2f%%",
+                        min_value=0,
+                        max_value=1
+                    ),
+                    "Value ($)": st.column_config.NumberColumn(
+                        "Value (USD)",
+                        format="$%.2f"
+                    )
+                },
                 use_container_width=True
             )
             
