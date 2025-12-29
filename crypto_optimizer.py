@@ -119,11 +119,13 @@ class BidnowOptimizer:
         # 2. Define Constraints based on Risk Profile
         sov_target = 0.50 # SoV Base (BTC Only)
         min_cash = 0.10   # Liquidity Buffer
+        max_cash = 1.0    # No limit by default
         
         if self.risk_profile == 'Aggressive':
             max_w = 0.60
             sov_target = 0.40
             min_cash = 0.05
+            max_cash = 0.20 # Force investment
             risk_free_rate = 0.03 
         elif self.risk_profile == 'Conservative':
             max_w = 0.30 
@@ -135,12 +137,14 @@ class BidnowOptimizer:
             max_w = 0.80      # Can go almost all-in on one winner
             sov_target = 0.30 # Lower safety base
             min_cash = 0.05   # Bare minimum liquid
+            max_cash = 0.15   # Force exposure
             risk_free_rate = 0.04
         elif self.risk_profile == 'Moonshot':
             # Degen Mode: Scatter shots for Multi-baggers
             max_w = 0.40      # Don't bet everything on one junk coin
             sov_target = 0.15 # Minimal BTC anchor
             min_cash = 0.02   # Almost fully invested
+            max_cash = 0.10   # Force 90% into Alts!
             risk_free_rate = 0.0
         else: # Moderate
             max_w = 0.40
@@ -152,7 +156,7 @@ class BidnowOptimizer:
         bounds = []
         for t in tickers:
             if t in stablecoins:
-                bounds.append((0.0, 0.8)) # Cash can go high
+                bounds.append((0.0, 0.8)) # Cash can go high (capped by max_cash constraint later)
             elif t in sov_assets:
                 bounds.append((0.05, 0.8)) # SoV can go high
             else:
@@ -169,10 +173,12 @@ class BidnowOptimizer:
              cons_list.append({'type': 'ineq', 'fun': lambda x: np.sum(x[sov_indices]) - sov_target})
              
         # C3: Maximum Drawdown Protection / Liquidity Constraint
-        # Must hold at least min_cash in Stablecoins
         cash_indices = [i for i, t in enumerate(tickers) if t in stablecoins]
         if cash_indices:
+             # Min Cash
              cons_list.append({'type': 'ineq', 'fun': lambda x: np.sum(x[cash_indices]) - min_cash})
+             # Max Cash (For Degen modes)
+             cons_list.append({'type': 'ineq', 'fun': lambda x: max_cash - np.sum(x[cash_indices])})
 
         constraints = tuple(cons_list)
         
