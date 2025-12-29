@@ -2322,6 +2322,10 @@ def page_auto_wealth():
         # SORT by Weight DESC
         df_alloc = df_alloc.sort_values(by='Weight', ascending=False)
         
+        # Prepare for Display (Scale % for proper reading)
+        df_display = df_alloc.copy()
+        df_display['Weight'] = df_display['Weight'] * 100
+        
         c_pie, c_tab = st.columns([1, 1])
         
         with c_pie:
@@ -2332,13 +2336,13 @@ def page_auto_wealth():
             
         with c_tab:
             st.dataframe(
-                df_alloc,
+                df_display,
                 column_config={
                     "Weight": st.column_config.ProgressColumn(
                         "Allocation %",
                         format="%.2f%%",
                         min_value=0,
-                        max_value=1
+                        max_value=100
                     ),
                     "Value ($)": st.column_config.NumberColumn(
                         "Value (USD)",
