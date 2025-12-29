@@ -222,3 +222,69 @@ class BidnowOptimizer:
             final_weights = {k: round(v/tot, 4) for k, v in final_weights.items()}
             
         return final_weights
+
+    def select_optimal_universe(self, ranking_df, top_n_candidates=30):
+        """
+        Quant Mode: Uses Math to select the best subset of assets (Global Optimization).
+        Instead of picking by Score, we test combinations to maximize Sharpe.
+        """
+        if ranking_df.empty: return pd.DataFrame()
+        
+        # 1. Candidate Pool (Top N by Score to start)
+        candidates = ranking_df.head(top_n_candidates).copy()
+        
+        # 2. Fetch History for ALL candidates (Heavy Operation)
+        import yfinance as yf
+        symbols = candidates['Symbol'].tolist()
+        
+        # Add SoV/Cash just for correlation check (optional, but good for context)
+        # Note: We rely on the optimizer to add them later, this is just for picking the ALTS.
+        
+        try:
+            data = yf.download(symbols, period="2y", interval="1d", progress=False)['Close']
+            if data.empty: return ranking_df.head(10) # Fallback
+            
+            # 3. Quick Global Optimization
+            returns = data.pct_change().dropna()
+            mean_ret = returns.mean() * 365
+            cov_mat = returns.cov() * 365
+            
+            num = len(symbols)
+            args = (mean_ret, cov_mat)
+            
+            # Simple Sharpe Function
+            def neg_sharpe(w, mr, cm):
+                p_ret = np.sum(mr * w)
+                p_std = np.sqrt(np.dot(w.T, np.dot(cm, w)))
+                if p_std < 1e-6: return 0
+                return -(p_ret / p_std) # Assume 0 risk free for selection speed
+            
+            bounds = tuple([(0.0, 1.0) for _ in range(num)])
+            constraints = ({'type': 'eq', 'fun': lambda x: np.sum(x) - 1})
+            init = num * [1./num]
+            
+            res = minimize(neg_sharpe, init, args=args, method='SLSQP', bounds=bounds, constraints=constraints)
+            
+            if res.success:
+                best_weights = res.x
+                # 4. Filter Winners
+                # Keep assets that got > 1% allocation in this global battle
+                winners = []
+                for i, w in enumerate(best_weights):
+                    if w > 0.01:
+                       winners.append(symbols[i]) 
+                       
+                # If selection is too small (e.g. only 1 winner), fallback to more
+                if len(winners) < 4:
+                    # Sort candidates by weight logic effectively
+                    # Simplified: just return top N score if math failed to diversify
+                    return ranking_df.head(10)
+                    
+                selected_df = candidates[candidates['Symbol'].isin(winners)]
+                return selected_df
+                
+        except Exception as e:
+            # print(f"Quant Selection Failed: {e}")
+            pass
+            
+        return ranking_df.head(10) # Fallback
