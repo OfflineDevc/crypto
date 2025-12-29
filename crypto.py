@@ -2273,10 +2273,18 @@ def page_auto_wealth():
         # We need historical prices for the selected assets to calculate covariance
         selected_tickers = df_selected['Symbol'].head(target_n).tolist()
         
-        # Fetch History
+        # Fetch History (FULL CYCLE - 4 Years)
         import yfinance as yf
+        
+        # Inject Stablecoin & Gold (SoV) for safety if not present
+        defaults = ['USDC-USD', 'PAXG-USD']
+        for d in defaults:
+            if d not in selected_tickers:
+                selected_tickers.append(d)
+            
         try:
-            data = yf.download(selected_tickers, period="1y")['Close']
+            # We use 4y to capture the last Bull Run (2021) -> Better Mean Reversion logic
+            data = yf.download(selected_tickers, period="4y")['Close']
         except:
              st.error("Failed to download historical data for optimization.")
              return
@@ -2300,16 +2308,28 @@ def page_auto_wealth():
             mean_ret = returns.mean() * 365
             cov = returns.cov() * 365
             
+            # CONSISTENT STABLECOIN OVERRIDE FOR DISPLAY
+            stablecoins = ['USDC-USD', 'USDT-USD', 'DAI-USD']
+            for t in data.columns:
+                if t in stablecoins:
+                    mean_ret[t] = 0.04
+                    cov.loc[t, :] = 0
+                    cov.loc[:, t] = 0
+                    cov.loc[t, t] = 0.0001
+            
             port_ret = np.sum(mean_ret * w_vector)
             port_std = np.sqrt(np.dot(w_vector.T, np.dot(cov, w_vector)))
-            sharpe = (port_ret - 0.04) / port_std
+            sharpe = (port_ret - 0.04) / port_std if port_std > 0.001 else 0
             
             m1, m2, m3 = st.columns(3)
-            m1.metric("Expected Annual Return", f"{port_ret*100:.1f}%", help="Based on historical mean returns.")
+            # Color logic for display
+            ret_color = "normal" if port_ret > 0 else "off"
+            
+            m1.metric("Expected Annual Return", f"{port_ret*100:.1f}%", help="Based on 4-Year Cycle Average.", delta_color=ret_color)
             m2.metric("Portfolio Volatility (Risk)", f"{port_std*100:.1f}%", help="Annualized Standard Deviation.")
             m3.metric("Sharpe Ratio (Efficiency)", f"{sharpe:.2f}", help="> 1.0 is Good. > 2.0 is Excellent.", delta_color="normal")
             
-            st.caption(f"**Optimization Logic**: Maximize Sharpe Ratio (Mean-Variance) with {risk_profile} Constraints.")
+            st.caption(f"**Optimization Logic**: 4-Year Cycle Analysis + Stablecoin Yield Optimization ({risk_profile}).")
             
         except Exception as e:
             st.error(f"Could not calculate metrics: {e}")
