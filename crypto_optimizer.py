@@ -148,7 +148,8 @@ class BidnowOptimizer:
             elif t in sov_assets:
                 bounds.append((0.05, 0.8)) # SoV can go high
             else:
-                bounds.append((0.0, max_w)) # Alts capped
+                # Force Diversification: Alts must have at least 1.5%
+                bounds.append((0.015, max_w)) 
         bounds = tuple(bounds)
         
         # Constraints
