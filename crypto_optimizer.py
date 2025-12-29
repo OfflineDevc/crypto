@@ -47,11 +47,11 @@ class BidnowOptimizer:
         
         # 1. Foundation (Blue Chips) - Safety
         # We assume known list or top matches
-        blue_chips = ['BTC-USD', 'ETH-USD', 'SOL-USD', 'BNB-USD', 'XRP-USD', 'ADA-USD', 'AVAX-USD']
+        blue_chips = ['BTC-USD', 'ETH-USD', 'SOL-USD', 'BNB-USD', 'XRP-USD', 'ADA-USD', 'AVAX-USD', 'USDC-USD', 'PAXG-USD']
         foundation_candidates = df[df['Symbol'].isin(blue_chips)].sort_values(by='Bidnow_Score', ascending=False)
         
         # Select Top 3-5 Foundation
-        n_foundation = max(2, int(target_n * 0.3)) # 30% count
+        n_foundation = max(2, int(target_n * 0.4)) # 40% count
         selected_foundation = foundation_candidates.head(n_foundation)
         
         # 2. Core Growth (Quality) - High Score
@@ -60,7 +60,7 @@ class BidnowOptimizer:
         # Sort by Score
         growth_candidates = remaining.sort_values(by='Bidnow_Score', ascending=False)
         
-        n_growth = max(3, int(target_n * 0.5)) # 50% count
+        n_growth = max(3, int(target_n * 0.4)) # 40% count
         selected_growth = growth_candidates.head(n_growth)
         
         # 3. Alpha (Momentum) - High RSI/Vol (but check for reasonable limits)
@@ -83,74 +83,123 @@ class BidnowOptimizer:
 
     def optimize_weights(self, price_history_df, metadata_df=None):
         """
-        Calculates optimal weights using Strategic Asset Allocation (Tier-Based).
-        Emulates a Professional Crypto Fund structure:
-        - Foundation (Safe): ~50%
-        - Growth (Core): ~30%
-        - Alpha (Moon): ~20%
-        
-        Within tiers, weights are distributed based on 'Bidnow_Score' (Fundamental Quality).
+        Calculates optimal weights using Modern Portfolio Theory (MVO).
+        Objective: Maximize Sharpe Ratio.
+        Features:
+        - SoV Base Constraint (BTC+Gold >= 50%)
+        - Smart Cash (Yield 4%)
+        - Minimum Liquidity Buffer (Cash >= 10%)
         """
         if price_history_df.empty: return {}
-        tickers = price_history_df.columns.tolist()
+        
+        # 1. Data Prep: Calculate Returns
+        # Drop check: Ensure no NaNs
+        prices = price_history_df.dropna()
+        if len(prices) < 30: return {} 
+        
+        returns = prices.pct_change().dropna()
+        mean_returns = returns.mean() * 365 # Annualized
+        cov_matrix = returns.cov() * 365    # Annualized
+        
+        tickers = returns.columns.tolist()
         num_assets = len(tickers)
         
-        # Default fallback
-        if metadata_df is None or 'Tier' not in metadata_df.columns:
-             return {t: round(1.0/num_assets, 4) for t in tickers}
-
-        # --- STRATEGIC ALLOCATION ---
-        weights = {}
+        # --- STABLECOIN & SOV SETUP ---
+        stablecoins = ['USDC-USD', 'USDT-USD', 'DAI-USD', 'USDE-USD', 'FDUSD-USD']
+        sov_assets = ['BTC-USD', 'PAXG-USD']
         
-        # 1. Define Tier Targets based on Risk Profile
-        if self.risk_profile == 'Conservative':
-            tier_targets = {'Foundation': 0.60, 'Growth': 0.30, 'Alpha': 0.10}
-        elif self.risk_profile == 'Aggressive':
-            tier_targets = {'Foundation': 0.30, 'Growth': 0.40, 'Alpha': 0.30}
+        # Override Params for Stablecoins (The Risk-Free Yield Trick)
+        for i, t in enumerate(tickers):
+            if t in stablecoins:
+                mean_returns[t] = 0.04  # 4% Risk Free Yield
+                cov_matrix.loc[t, :] = 0
+                cov_matrix.loc[:, t] = 0
+                cov_matrix.loc[t, t] = 0.0001
+        
+        # 2. Define Constraints based on Risk Profile
+        sov_target = 0.50 # SoV Base
+        min_cash = 0.10   # Liquidity Buffer
+        
+        if self.risk_profile == 'Aggressive':
+            max_w = 0.60
+            sov_target = 0.40
+            min_cash = 0.05
+            risk_free_rate = 0.03 
+        elif self.risk_profile == 'Conservative':
+            max_w = 0.30 
+            sov_target = 0.60
+            min_cash = 0.15
+            risk_free_rate = 0.04
         else: # Moderate
-            tier_targets = {'Foundation': 0.50, 'Growth': 0.30, 'Alpha': 0.20}
-            
-        # 2. Group Assets
-        grouped = metadata_df[metadata_df['Symbol'].isin(tickers)].groupby('Tier')
-        
-        total_assigned = 0
-        
-        # Calculate sub-weights for each tier
-        for tier, target_pct in tier_targets.items():
-            # Get assets in this tier
-            # Note: Tier names must match what we assigned in select_universe
-            # select_universe uses: 'Foundation', 'Growth', 'Alpha'
-            
-            tier_assets = metadata_df[(metadata_df['Symbol'].isin(tickers)) & (metadata_df['Tier'] == tier)]
-            
-            if tier_assets.empty:
-                # Distribute this tier's target to others or ignore
-                continue
-                
-            # Weighting within Tier: Score Weighted
-            # Higher Score = Higher Weight
-            total_score = tier_assets['Bidnow_Score'].sum()
-            
-            if total_score == 0:
-                # Equal weight if no scores
-                sub_weight = target_pct / len(tier_assets)
-                for _, row in tier_assets.iterrows():
-                    weights[row['Symbol']] = sub_weight
-            else:
-                # Proportional to Score
-                for _, row in tier_assets.iterrows():
-                    share = row['Bidnow_Score'] / total_score
-                    weights[row['Symbol']] = target_pct * share
-                    
-        # 3. Normalize (in case some tiers were empty)
-        total_w = sum(weights.values())
-        if total_w > 0:
-            weights = {k: v / total_w for k, v in weights.items()}
-            
-        # 4. Fill missing (if any tickers passed but not in metadata)
-        # Should not happen given logic, but safety check
-        for t in tickers:
-            if t not in weights:
-                weights[t] = 0.0
+            max_w = 0.40
+            sov_target = 0.50
+            min_cash = 0.10
+            risk_free_rate = 0.035
 
-        return {k: round(v, 4) for k, v in weights.items()}
+        # Bounds
+        bounds = []
+        for t in tickers:
+            if t in stablecoins:
+                bounds.append((0.0, 0.8)) # Cash can go high
+            elif t in sov_assets:
+                bounds.append((0.05, 0.8)) # SoV can go high
+            else:
+                bounds.append((0.0, max_w)) # Alts capped
+        bounds = tuple(bounds)
+        
+        # Constraints
+        cons_list = [{'type': 'eq', 'fun': lambda x: np.sum(x) - 1}]
+        
+        # C2: SoV Constraint (BTC + PAXG >= target)
+        sov_indices = [i for i, t in enumerate(tickers) if t in sov_assets]
+        if sov_indices:
+             cons_list.append({'type': 'ineq', 'fun': lambda x: np.sum(x[sov_indices]) - sov_target})
+             
+        # C3: Maximum Drawdown Protection / Liquidity Constraint
+        # Must hold at least min_cash in Stablecoins
+        cash_indices = [i for i, t in enumerate(tickers) if t in stablecoins]
+        if cash_indices:
+             cons_list.append({'type': 'ineq', 'fun': lambda x: np.sum(x[cash_indices]) - min_cash})
+
+        constraints = tuple(cons_list)
+        
+        # 3. Objective Function (Negative Sharpe)
+        def neg_sharpe_ratio(weights):
+            weights = np.array(weights)
+            portfolio_return = np.sum(mean_returns * weights)
+            portfolio_std = np.sqrt(np.dot(weights.T, np.dot(cov_matrix, weights)))
+            # Safety check for div by zero
+            if portfolio_std < 1e-6: return 0
+            sharpe = (portfolio_return - risk_free_rate) / portfolio_std
+            return -sharpe
+
+        # 4. Run Optimization
+        init_guess = num_assets * [1. / num_assets]
+        
+        try:
+            # SLSQP is robust for inequality constraints
+            result = minimize(neg_sharpe_ratio, init_guess, method='SLSQP', bounds=bounds, constraints=constraints)
+            
+            if result.success:
+                optimal_weights = result.x
+            else:
+                # print(f"Opt Failed: {result.message}")
+                optimal_weights = init_guess
+                
+        except Exception as e:
+            # print(f"Optimization Error: {e}")
+            optimal_weights = init_guess
+
+        # 5. Format Output
+        final_weights = {}
+        for i, ticker in enumerate(tickers):
+            w = optimal_weights[i]
+            if w > 0.001: 
+                final_weights[ticker] = round(w, 4)
+                
+        # Handle normalization
+        tot = sum(final_weights.values())
+        if tot > 0:
+            final_weights = {k: round(v/tot, 4) for k, v in final_weights.items()}
+            
+        return final_weights
