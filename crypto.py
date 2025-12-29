@@ -2213,7 +2213,7 @@ def page_auto_wealth():
             capital = st.number_input("Capital Amount (USD)", min_value=1000, value=10000, step=1000, help="Used to determine position sizing and concentration.")
         with c2:
             # Reusing the existing Profile State if available, else simple select
-            risk_options = ["Conservative", "Moderate", "Aggressive"]
+            risk_options = ["Conservative", "Moderate", "Aggressive", "Sniper", "Moonshot"]
             # Auto-select input based on previous quiz if exists
             idx = 1
             if 'risk_profile' in st.session_state and st.session_state.risk_profile in risk_options:
